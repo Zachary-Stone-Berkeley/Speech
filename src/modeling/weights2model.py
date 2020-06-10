@@ -57,7 +57,7 @@ with open('./tf_model.py', 'w+') as m, \
   m.write('\n])\n\n')
 
   m.write('def classify(x):\n')
-  m.write('  return np.argmax(np.add(np.matmul(np.maximum(np.add(np.matmul(x, hk.T), hb.T), 0), ok.T), ob))\n\n')
+  m.write('  return np.argmax(np.add(np.matmul(np.maximum(np.add(np.matmul(x, hk.T), hb.T), 0), ok.T), ob.T), axis=1)\n\n')
   #m.write('  return np.maximum(np.sign(np.add(np.matmul(np.maximum(np.add(np.matmul(x, hk.T), hb.T), 0), ok.T), ob)), 0)\n\n')
 
   m.write('def tf_classify(x):\n')

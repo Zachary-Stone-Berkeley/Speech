@@ -131,7 +131,7 @@ class AbstractClassifier:
 
   def predict(self, inputs):
     return self.sess.run(self.preds, feed_dict={
-      self.input_placeholder:inputs})[0]
+      self.input_placeholder:inputs})
 
   def get_errors(self, inputs, labels):
     return self.sess.run(tf.cast(tf.equal(
@@ -179,6 +179,7 @@ class AbstractClassifier:
         save_location = './pretrained models/'
       if not os.path.exists(save_location):
         os.makedirs(save_location)
+      print(f'Saving weights to {save_location}')
       self.saver.save(self.sess, save_location + f'{self.name}.ckpt')
 
     if close:
@@ -210,18 +211,9 @@ class AudioClassifier(AbstractClassifier):
     self.input_placeholder = tf.placeholder(shape=[None, self.n_features], 
       dtype=tf.float32)
     output = self.input_placeholder
+
     output = ops.linear(output, self.n_neurons, f"{self.name}/dense")
     output = ops.activation_layer(output, tf.nn.relu)
-    if 0:#self.pool:
-      if self.n_neurons > 3:
-        size = 5
-        stride = 3
-      else:
-        size = 3
-        stride = 3
-      #output = tf.expand_dims(output, 2)
-      output = ops.max_pool_1d(output, size, stride)
-      output = ops.flatten_layer(output)
     if self.onehot:
       output = ops.linear(output, self.n_classes, f"{self.name}/logits")
     else:
@@ -241,9 +233,10 @@ class ComplexAudioClassifier(AbstractClassifier):
     output = self.input_placeholder
     output = tf.expand_dims(output, 2)
     output = ops.conv1d(output, self.n_neurons, 5, 3, 0.02, 
-      "classifier/conv1d_01", padding="SAME")
+      f"{self.name}/conv1d_01", padding="SAME")
     print(output.shape)
     output = ops.activation_layer(output, tf.nn.elu)
+    #output = ops.max_pool_1d(output, size, stride)
     output = ops.flatten_layer(output)
     if self.onehot:
       output = ops.linear(output, self.n_classes, f"{self.name}/logits")

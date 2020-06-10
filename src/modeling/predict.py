@@ -1,21 +1,32 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
+import sys
+sys.path.append('../../../Daimensions/')
 import tensorflow as tf
 import argparse
 import numpy as np
 import librosa
 import pyaudio
+import matplotlib.pyplot as plt
+import soundfile as sf
 from functools import reduce
 from progress.bar import Bar
 from sklearn.preprocessing import scale
 # ------
+from out import classify, single_classify, transform
+#from detector import classify, single_classify, transform
+#from sixteen import classify, single_classify
+#from fourtyfour import classify, single_classify
 from DataGetter import load_csv
 from models import AudioClassifier, ComplexAudioClassifier
-from feature_extraction import xtract, classify, xtractv2, classify2
+from feature_extraction import xtract, xtract_coarse
 from tf_model import tf_classify
-from scaling import mu, var
+#from scaling import mu, var
 
-SCALE = True
+#def transform(x):
+#  return x
+
+SCALE = False
 def myscale(x):
   return (x-mu)/var
 
@@ -45,17 +56,28 @@ def str2bool(x):
 if __name__ == '__main__':
 
   parser = argparse.ArgumentParser()
-  parser.add_argument('-nn', '--n_neurons', type=int, default=8, 
+  parser.add_argument('-nn', '--n_neurons', type=int, default=10, 
     help="number of neurons")
   parser.add_argument('-nf', '--n_features', type=int, default=95,
     help="number of input features")
-  parser.add_argument('-oh', '--onehot', type=str2bool, default=False)
-  parser.add_argument('-tf', '--tensorflow', type=str2bool, default=False)
-  parser.add_argument('--conv', type=str2bool, default=False)
+  parser.add_argument('-nc', '--n_classes', type=int, default=3)
+  parser.add_argument('-oh', '--onehot', type=str2bool, default=True)
+  parser.add_argument('-tf', '--tensorflow', type=str2bool, default=True)
+  parser.add_argument('--conv', action='store_true')
   parser.add_argument('-p', '--pool', type=str2bool, default=False)
   parser.add_argument('--path', type=str, default='')
   parser.add_argument('--name', type=str, default='')
+  parser.add_argument('-d', '--do', type=str, default='nnnny')
+  parser.add_argument('--audio_sr', '-asr', type=int, default=16000)
+  parser.add_argument('--mfcc_sr', '-msr', type=int, default=None)
+  parser.add_argument('--plot', type=str2bool, default=False)
   args = parser.parse_args()
+
+  audio_sr = args.audio_sr
+  mfcc_sr = args.mfcc_sr
+
+  if args.audio_sr == -1:
+    args.audio_sr = None
 
   if not args.name:
     if args.conv:
@@ -65,24 +87,30 @@ if __name__ == '__main__':
   else:
     name = args.name
 
-  
-  if args.n_features == 95:
+  if 'w' in args.path:
     XTRACT = xtract
-    ALPHA = 0.01
-    BETA = 0.01
-    N_INTERLEAVINGS = 5
-  elif args.n_features == 76:
-    XTRACT = xtractv2
-    ALPHA = 0.015
-    BETA = 0.015
-    N_INTERLEAVINGS = 3
-  elif args.n_features == 114:
-    XTRACT = xtractv2
+    ALPHA = 0.2
+    BETA = 0.2
+    N_INTERLEAVINGS = 10
+  elif 'coarse' in args.path or 'test' in args.path:
+    XTRACT = xtract_coarse
     ALPHA = 0.01
     BETA = 0.01
     N_INTERLEAVINGS = 5
   else:
-    raise Exception
+    XTRACT = xtract
+    ALPHA = 0.01
+    BETA = 0.01
+    N_INTERLEAVINGS = 5
+
+  if 'h' in args.path:
+    N_MELS = 256
+    FMAX = None
+  else:
+    N_MELS = 128
+    FMAX = None
+
+  print(ALPHA, BETA, N_INTERLEAVINGS, N_MELS, FMAX)
 
   if args.tensorflow:
     config = tf.compat.v1.ConfigProto()
@@ -90,30 +118,30 @@ if __name__ == '__main__':
     sess = tf.Session(config=config)
     if not args.conv:
       c = AudioClassifier(n_neurons=args.n_neurons, sess=sess, 
-        n_features=args.n_features, n_classes=2, name=name,
+        n_features=args.n_features, n_classes=args.n_classes, name=name,
         onehot_labels=args.onehot, pool=args.pool)
     else:
       c = ComplexAudioClassifier(n_neurons=args.n_neurons, sess=sess, 
-        n_features=args.n_features, n_classes=2, name=name,
+        n_features=args.n_features, n_classes=args.n_classes, name=name,
         onehot_labels=args.onehot)
     if args.path:
       c.load_weights(f'./pretrained models/{args.path}/{c.name}.ckpt')
     else:
       c.load_weights(f'./pretrained models/{c.name}.ckpt')
-    
-    def tfclassify(x):
-      if x.shape[0] == -1:
-        return c.predict(x)[0]
-      else:
-        return c.predict(x)
-  
-  else:
-    tfclassify = tf_classify
 
-  do = input('Test on other speech data sets? y/n\n')
-  if do == 'y':
+  
+  if False:
+    root = '../../'
+    fma = root + 'fma_medium/000/000002.mp3'
+    data, samplerate = sf.read(fma)
+    print(data.__attrs__, samplerate)
+    raise Exception
+
+  print('\n\n[other datasets][random inputs][training data][voice][selected audio]\n')
+
+  if args.do[0] == 'y':
     size = 100
-    for dataset in ('LibriSpeech', 'Vox Forge', 'Flickr Audio Caption'):
+    for dataset in ('LibriSpeech', 'Vox Forge', 'Flickr Audio Caption', 'common-voice', 'FSD Kaggle'):
       paths = get_paths(dataset)
       np.random.shuffle(paths)
       bar = Bar(dataset, max=size)
@@ -121,29 +149,27 @@ if __name__ == '__main__':
       co_errors = 0
       mo_errors = 0
       n_instances = 0
+      if dataset == 'FSD Kaggle':
+        label = 0
+      else:
+        label = 1
       
       for wav in paths[:size]:
         bar.next()
-        audio, sr = librosa.load(wav, sr=None)
+        sr = 16000
+        audio, sr = librosa.load(wav, sr=audio_sr)
         if len(audio) < 0.5:
           continue
-        xf = XTRACT(audio, sr, alpha=ALPHA, beta=BETA, 
-        	n_interleavings=N_INTERLEAVINGS)
+        xf = XTRACT(audio, mfcc_sr, alpha=ALPHA, beta=BETA, 
+        	n_interleavings=N_INTERLEAVINGS, n_mels=N_MELS, fmax=FMAX)
         if SCALE:
           xf = myscale(xf)
-        for i, xf in enumerate(xf):
-          n_instances += 1
-          co = 1 #if classify2(xf) else 0
-          if args.tensorflow:
-            mo = tfclassify(np.reshape(xf, (1, args.n_features)))
-          else:
-            mo = tfclassify(xf)
-          if mo != co:
-            n_disagreements += 1
-          if mo != 1:
-            mo_errors += 1
-          if co != 1:
-            co_errors += 1
+        n_instances += xf.shape[0]
+        co = np.asarray(classify(transform(xf)))
+        mo = c.predict(xf)
+        mo_errors += mo.shape[0] - np.sum(mo == label)
+        co_errors += co.shape[0] - np.sum(co == label)
+        n_disagreements += np.sum(1-np.equal(co, mo))
       print('\n')
       print('----------------')
       print('Disagreement: ', n_disagreements/n_instances)
@@ -152,8 +178,7 @@ if __name__ == '__main__':
       print('\n')
       bar.finish()
 
-  do = input('Test on random-valued mfccs? y/n\n')
-  if do == 'y':
+  if args.do[1] == 'y':
     n_instances = 1000
     mo_errors = 0
     co_errors = 0
@@ -161,13 +186,10 @@ if __name__ == '__main__':
     inputs = np.random.uniform(low=-100, high=100, size=(n_instances, 
     	                                                       args.n_features))
     for x in inputs:
+      co = single_classify(transform(x))
       if SCALE:
         x = myscale(x)
-      co = 1 #if classify2(x) else 0
-      if args.tensorflow:
-        mo = tfclassify(np.reshape(x, (1, args.n_features)))
-      else:
-        mo = tfclassify(x)
+      mo = c.predict(np.reshape(x, (1, args.n_features)))
       if mo != co:
         n_disagreements += 1
       if mo != 0:
@@ -181,89 +203,42 @@ if __name__ == '__main__':
     print('Compiler Accuracy: ', 1-co_errors/n_instances)
     print('\n')
 
-  do = input('Test on specific wavs? y/n\n')
-  if do == 'y':
-
-    paths = ('../nonspeech.wav', '../speech.wav', 
-      '../nonspeech2.wav', '../speech2.wav')
-
-    for path in paths:
-      n_disagreements = 0
-      co_errors = 0
-      mo_errors = 0
-
-      audio, sr = librosa.load(path, sr=16000)
-      mfccs = XTRACT(audio, sr, alpha=ALPHA, beta=BETA, 
-      	n_interleavings=N_INTERLEAVINGS)
-      n_instances = mfccs.shape[0]
-
-      if SCALE:
-          mfccs = myscale(mfccs)
-
-      if 'nonspeech' in path:
-        gt = 0
-      else:
-        gt = 1
-
-      for i in range(mfccs.shape[0]):
-        co = 1 #if classify2(mfccs[i]) else 0
-        if args.tensorflow:
-          mo = tfclassify(np.reshape(mfccs[i], (1, args.n_features)))
-        else:
-          mo = tfclassify(mfccs[i])
-        if co != gt:
-          co_errors += 1
-        if mo != gt:
-          mo_errors += 1
-        if co != mo:
-          n_disagreements += 1
-      
-      print('\n')
-      print(path)  
-      print('----------------')
-      print('Disagreement: ', n_disagreements/n_instances)
-      print('TensorFlow Accuracy: ', 1-mo_errors/n_instances)
-      print('Compiler Accuracy: ', 1-co_errors/n_instances)
-      print('\n')
-
-  do = input('Test on training data? y/n\n')
-  if do == 'y':
+  if args.do[2] == 'y':
     
     n_disagreements = 0
     co_errors = 0
     mo_errors = 0
 
-    n_instances = 1000
+    train = load_csv(case='train', reuse=True, dest=args.path)
+    datasize = train.num_examples//10
+    batch_size = 64
+    n_batches = datasize//batch_size
 
-    train = load_csv(case='train', reuse=True, data_path=args.path)
-    X, Y = train.next_batch(n_instances)
-    if SCALE:
-      X = myscale(X)
-    for x, y in zip(X,Y):
-      gt = int(np.argmax(y))
-      co = 1 #if classify2(x) else 0
-      if args.tensorflow:
-        mo = tfclassify(np.reshape(x, (1, args.n_features)))
-      else:
-        mo = tfclassify(x)
-      if co != mo:
-        n_disagreements += 1
-      if mo != gt:
-        mo_errors += 1
-      if co != gt:
-        co_errors += 1
+    for i in range(n_batches):
+      #print(f'{i} of {n_batches}')
+      X, Y = train.next_batch(batch_size)
+      Y = np.argmax(Y, axis=1)
+      co = classify(transform(X))
+      if SCALE:
+        X = myscale(X)
+      mo = c.predict(X)
+      co_errors += np.sum(1-np.equal(co, Y))
+      mo_errors += np.sum(1-np.equal(mo, Y))
+      n_disagreements += np.sum(1-np.equal(co, mo))
+
     print('\n')
     print('----------------')
-    print('Disagreement: ', n_disagreements/n_instances)
-    print('TensorFlow Accuracy: ', 1-mo_errors/n_instances)
-    print('Compiler Accuracy: ', 1-co_errors/n_instances)
-    print('\n')
+    print('Disagreement: ', n_disagreements/(batch_size*n_batches))
+    print('TensorFlow Accuracy: ', 1-mo_errors/(batch_size*n_batches))
+    print('Compiler Accuracy: ', 1-co_errors/(batch_size*n_batches))
 
-  do = input('Test on your voice? y/n\n')
-  if do == 'y':
+  if args.do[3] == 'y':
+    ctype = input('Use compiler (c) or tensorflow (t).')
     FORMAT = pyaudio.paFloat32
     CHANNELS = 1
-    RATE = 16000
+    RATE = args.audio_sr
+    if mfcc_sr == None:
+      mfcc_sr = RATE
     CHUNK = int(RATE*0.05)
 
     p = pyaudio.PyAudio()
@@ -274,24 +249,34 @@ if __name__ == '__main__':
                   input=True,
                   frames_per_buffer=CHUNK)
     
-    i = 0
     time_elapsed = 0
-    last_200ms = [None for _ in range(4)]
     while True:
       data = stream.read(CHUNK)
       data = np.frombuffer(data, dtype=np.float32)
       
-      xf = np.squeeze(XTRACT(data, RATE, alpha=ALPHA, beta=BETA, 
-      	n_interleavings=N_INTERLEAVINGS))
+      xf = np.squeeze(XTRACT(data, mfcc_sr, alpha=ALPHA, beta=BETA, 
+      	n_interleavings=N_INTERLEAVINGS, n_mels=N_MELS, fmax=FMAX))
       if SCALE:
       	xf = myscale(xf)
       if args.tensorflow:
         xf = np.reshape(xf, (1, args.n_features))
-      last_200ms[i] = 1 if tfclassify(xf) else 0
 
-      i = (i + 1) % 4
-      if i % 4 == 0:
-        print(sum(last_200ms) >= 2)
+      if ctype == 'c':
+        pred = classify(transform(xf))[0]
+      elif ctype == 't':
+        pred = c.predict(xf)[0]
+      else:
+        raise ValueError
+
+      if pred == 0:
+        print('nonspeech')
+      elif pred == 1:
+        print('speech')
+      elif pred == 2:
+        print('music')
+      else:
+        raise Exception
+
       time_elapsed += 0.05
       if time_elapsed >= 10:
         break
@@ -299,4 +284,97 @@ if __name__ == '__main__':
     stream.stop_stream()
     stream.close()
     p.terminate()
+  
+  if args.do[4] == 'y':
+    
+    paths = ['/home/zachary/Documents/AMI/fma_medium/000/000002.mp3',
+             '/home/zachary/Downloads/Mimicking Birds - Bloodlines.mp3',
+             '/home/zachary/Downloads/988-v07.lehman1.ogg',
+             #'/home/zachary/Documents/AMI/DCASE/audio/DevNode1_ex1_1.wav',
+             '/home/zachary/Downloads/8kHz.wav',
+             '/home/zachary/Downloads/16kHz.wav',
+             '/home/zachary/Downloads/44.1kHz.wav',
+             '/home/zachary/Downloads/dream.mp3',
+             '/home/zachary/Downloads/dream.wav',
+             '/home/zachary/Downloads/perils.mp3',
+             '/home/zachary/Downloads/holocaust.mp3',
+             '/home/zachary/Downloads/shaw2.mp3',
+             '/home/zachary/Downloads/copy.mp3',
+             '/home/zachary/Downloads/myvoice.mp3',
+             '/home/zachary/Downloads/myvoice2.wav',
+             '/home/zachary/Downloads/myvoice3.wav']
+  
+    if 0:
+      paths = paths + ['/home/zachary/Documents/AMI/amicorpus/EN2001a/audio/EN2001a.Mix-Headset.wav',
+                       '/home/zachary/Downloads/barackobamabatonrougefloodingARXE.mp3',
+                       '/home/zachary/Downloads/trumpspeech.mp3']
+    
+    speech = []
+    nonspeech = []
+    music = []
 
+    '''
+    test with 16000 for audio_sr but original sr of audio for mfcc_sr
+    so fma_medium is audio_sr=16000 and mfcc_sr=44100
+    '''
+    if args.plot:
+      paths = paths[-5:-3]
+      srs = list(range(16000, 44100, 400))
+    else:
+      paths = paths
+      srs = [args.audio_sr]
+
+    for path in paths:
+      
+      for audio_sr in srs:
+        audio, sr = librosa.load(path, sr=audio_sr)
+        print('\n\n\n', path, sr)
+
+        if mfcc_sr:
+          xf = XTRACT(audio, mfcc_sr, alpha=ALPHA, beta=BETA, 
+                n_interleavings=N_INTERLEAVINGS, n_mels=N_MELS, fmax=FMAX)
+        else:
+          xf = XTRACT(audio, sr, alpha=ALPHA, beta=BETA, 
+                n_interleavings=N_INTERLEAVINGS, n_mels=N_MELS, fmax=FMAX)
+        co = 1#np.asarray(classify(transform(xf)))
+        mo = c.predict(xf)
+
+        if args.plot:
+          nonspeech.append(np.sum(mo == 0) / mo.shape[0])
+          speech.append(np.sum(mo == 1) / mo.shape[0])
+          music.append(np.sum(mo == 2) / mo.shape[0])
+          continue
+
+        
+        for i in range(3):
+          if i == 0:
+            pred = 'nonspeech'
+          elif i == 1:
+            pred = 'speech'
+          elif i == 2:
+            pred = 'music'
+          print(f'TensorFlow predicts {np.sum(mo == i) / mo.shape[0]} of the sample is {pred}')
+          #print(f'Brainome predicts   {np.sum(co == i) / co.shape[0]} of the sample is {pred}')
+        
+    if args.plot:
+      plt.plot(srs, speech, label='speech')
+      plt.plot(srs, nonspeech, label='nonspeech')
+      plt.plot(srs, music, label='music')
+      plt.legend()
+      plt.show()
+
+
+'''
+python -W ignore mfcc.py -gb 1.2 --subdir '8000'
+python main.py --path 'None'
+python -W ignore predict.py --path 'None' -d nnnny
+
+python -W ignore predict.py --path '16000c' -asr 16000 -nn 10
+python -W ignore predict.py --path '16000' -asr 16000
+python -W ignore predict.py --path 'ww' -asr 16000
+
+btc -v -v -f NN -o sixteen.py -server qa3-daimensions.brainome.ai './datadir/16khz.csv'
+btc -v -v -f NN -o new.py -server qa3-daimensions.brainome.ai new.csv
+
+ffmpeg -i shaw.mp3 -ss 00:00:10 -to 00:00:40 -c copy shaw.wav
+'''

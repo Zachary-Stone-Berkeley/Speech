@@ -4,7 +4,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow as tf
 import numpy as np
 # ---------------------------------
-from DataGetter import get_data
+from DataGetter import get_data, load_csv
 from CustomDataSet import DataSet
 from models import AudioClassifier, ComplexAudioClassifier
 
@@ -38,31 +38,28 @@ if __name__ == "__main__":
     the conv layer.")
 
   # argument related to the data
-  parser.add_argument('-r', '--reuse', type=str2bool, default=False,
+  parser.add_argument('-r', '--reuse', action='store_true',
     help="If True, sources will not be combined to make the data set, instead \
     the existing combined csv will be reused if it exists.")
   parser.add_argument('-gb', '--max_gb', type=float, default=1.,
     help="Maximum gb csv file.")
-  #parser.add_argument('--speech_src', type=str, default=None,
-  #  help="The speech source to be used.")
-  #parser.add_argument('--nonspeech_src', type=str, default=None,
-  #  help="The non-speech source to be used.")
-  parser.add_argument('--sources', nargs='+', type=str,
-    default=['amicorpus', 'DCASE', 'fma_medium'])
+  parser.add_argument('--classmap', '-cm', nargs='+', default=[])
   parser.add_argument('--mem_friendly', type=str2bool, default=False,
     help="Set to true -gb is set to more than can be loaded into \
     memory.")
   parser.add_argument('--path', type=str, default='',
     help='Path from root/datadir/ to data set.')
+  parser.add_argument('--dest', type=str, default='')
   parser.add_argument('--name', type=str, default='',
     help='Name for model (used in saving/loading weights).')
-  parser.add_argument('--scale', type=str2bool, default=False,
+  parser.add_argument('--scale', action='store_true',
     help='Scale the data.')
+  parser.add_argument('--exclude', '-x', nargs='+', type=int, default=None)
 
   # argument related to the model
-  parser.add_argument('--test', type=str2bool, default=True, 
+  parser.add_argument('-t', '--test', type=str2bool, default=True,
     help="Bool to compute test accuracy or not.")
-  parser.add_argument('--conv', type=str2bool, default=False, 
+  parser.add_argument('--conv', action='store_true', 
     help="Bool to use convolution or not.")  
   parser.add_argument('-s', '--save', type=str2bool, default=True,
     help="Bool to save model weights or not.")
@@ -85,16 +82,24 @@ if __name__ == "__main__":
   else:
     name = args.name
   
-  print('\nLoading data set...\n')
-  reuse = args.reuse
-  classmap = [x for i, x in enumerate(['nonspeech', 'speech', 'music']) 
-                                                           if args.sources[i]]
+  if not args.classmap:
+    classmap = ['nonspeech', 'speech', 'music']
+  else:
+    classmap = args.classmap
   n_classes = len(classmap)
-  d = get_data(sources=args.sources, classmap=classmap,
-    max_gb=args.max_gb, reuse=reuse, memory_friendly=args.mem_friendly,
-    data_path=args.path, doscale=args.scale)
+
+  if not args.dest:
+    args.dest = args.path
+
+  if args.test:
+    d = get_data(classmap=classmap,
+      max_gb=args.max_gb, reuse=args.reuse, memory_friendly=args.mem_friendly,
+      data_path=args.path, doscale=args.scale, dest=args.dest)
+  else:
+    d = (load_csv('train', max_gb=args.max_gb, classmap=classmap,
+            reuse=args.reuse, memory_friendly=args.mem_friendly, data_path=args.path,
+            doscale=args.scale, dest=args.dest), None)
   
-  print(f'\nBuilding model named {name}...\n')
   if args.conv:
     decay_op = lambda x: 10**(-x//10) 
     c = ComplexAudioClassifier(n_neurons=args.n_neurons, sess=sess, data_set=d, 
@@ -108,9 +113,9 @@ if __name__ == "__main__":
       n_classes=n_classes, name=name, decay_op=decay_op, 
       onehot_labels=args.onehot, pool=args.pool)
   
-  print(f'\nTraining model for {args.num_epochs} epochs...\n')
   c.train(num_epochs=args.num_epochs, test=args.test, close=False, 
-    save=args.save, save_path=args.path)
+    save=args.save, save_path=args.dest)
+  
   if not args.mem_friendly:
     ns = []
     for i in range(c.n_classes):
@@ -118,25 +123,13 @@ if __name__ == "__main__":
       ns.append(n)
       print(f'Num {classmap[i]} = {n}')
     print('Best guess accuracy = ', max(ns)/np.sum(ns))
-  
-  if not args.conv and not args.pool:
-    for v in tf.trainable_variables():
-      if c.name in v.name:
-        npv = sess.run(v)
-        name = v.name.replace('/', '.')
-        if args.path:
-          path_to_weights = './weights/' + args.path
-        else:
-          path_to_weights = './weights'
-        if not os.path.exists(path_to_weights):
-          os.makedirs(path_to_weights)
-        with open(path_to_weights + f'/{name}.txt', 'w+') as f:
-          if len(npv.shape) > 1:
-            for row in np.transpose(npv):
-              f.write(','.join(str(x) for x in row) + '\n')
-          else:
-            for row in npv:
-              f.write(str(row) + '\n')
-
 
   sess.close()
+
+  '''
+  python -W ignore mfcc.py --subdir 'hmels' -gb 1 -sr 16000
+  python -W ignore main.py --path 'hmels' -nn 10 -lr 0.0001 --dest 'hcoarse'
+  python -W ignore predict.py --path 'hcoarse' -nn 10 -asr 16000
+
+  python -W ignore mfcc.py --subdir 'hcoarse_music_speech' -gb 0.8 -sr 16000 -s '' -s 'american_rhetoric' -s 'fma_medium' --coarse
+  '''
