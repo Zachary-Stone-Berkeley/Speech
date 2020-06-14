@@ -18,7 +18,7 @@ def xtract(audio, sr, alpha=0.01, beta=0.01, n_interleavings=5,
   frames_per_window, hop_length = int(sr*alpha), int(sr*beta)
   window_length_in_s = alpha + (n_interleavings-1)*beta
 
-  mfccs = librosa.feature.mfcc(audio, sr=16000, 
+  mfccs = librosa.feature.mfcc(audio, sr=sr, 
     n_mfcc=n_mfcc, n_fft=frames_per_window, 
     hop_length=hop_length, center=False,
     n_mels=n_mels, fmax=fmax)
@@ -26,7 +26,7 @@ def xtract(audio, sr, alpha=0.01, beta=0.01, n_interleavings=5,
   n_instances = mfccs.shape[1]-n_interleavings+1
   n_xfeatures = (n_mfcc-start_index)*n_interleavings
 
-  res = np.zeros((n_instances, n_xfeatures))
+  res = np.zeros((n_instances, n_xfeatures)).astype(np.float32)
   for i in range(n_instances):
     res[i] = mfccs[start_index:, i:i+n_interleavings].reshape(n_xfeatures)
   return res
@@ -61,7 +61,12 @@ def xtract_coarse(audio, sr, alpha=0.01, beta=0.01, n_interleavings=5,
   n_instances = mfccs.shape[1]-n_interleavings+1
   n_xfeatures = (n_mfcc-start_index)*n_interleavings
 
-  res = np.zeros((n_instances, n_xfeatures+(n_mfcc-start_index)))
+  res = np.zeros((n_instances, n_xfeatures+(n_mfcc-start_index))).astype(np.float32)
   for i in range(n_instances):
     res[i] = np.concatenate([mfccs[start_index:, i:i+n_interleavings].reshape(n_xfeatures), mfccs2[start_index:, i]])
   return res
+
+
+
+
+  

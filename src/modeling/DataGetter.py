@@ -118,8 +118,6 @@ def load_csv(case='train', classmap=['nonspeech', 'speech', 'music'],
       imap[2] = 1
   else:
     imap[2] = 0
-  print(imap)
-  print([x for x in imap])
 
   n_classes = len(classmap)
   path_to_csv = f'../../datadir/{dest}'
@@ -162,8 +160,8 @@ def load_csv(case='train', classmap=['nonspeech', 'speech', 'music'],
         break
       label = label_helper(line, n_classes, imap)
       labels[i] = label
-      if label[0] == 1 and np.random.uniform() < 0.15:
-        #obs[i] = np.random.normal(size=n_features)
+      if label[0] == 1 and np.random.uniform() < 0.:
+        obs[i] = np.random.normal(size=n_features)
         obs[i] = np.random.uniform(low=-100, high=100, size=n_features)
       else:
         obs[i] = obs_helper(line)

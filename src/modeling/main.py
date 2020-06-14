@@ -127,7 +127,8 @@ if __name__ == "__main__":
   sess.close()
 
   '''
-  python -W ignore mfcc.py --subdir 'hmels' -gb 1 -sr 16000
+  python -W ignore mfcc.py --subdir 'musicnet' -gb 1 -sr 16000
+
   python -W ignore main.py --path 'hmels' -nn 10 -lr 0.0001 --dest 'hcoarse'
   python -W ignore predict.py --path 'hcoarse' -nn 10 -asr 16000
 
