@@ -1,6 +1,4 @@
-# Speech/Non-Speech Detection
-
-Summary of purpose here.
+# Speech/Non-Speech/Music Detection
 
 ## Directory Structure
 
@@ -9,28 +7,28 @@ The followinig directory structure is assumed.
 ```bash
 root  
 │  
-└───FSD Kaggle/  
-│   │  
-│   └───FSDKaggle2018.audio_train/  
-│   │  
-│   └───FSDKaggle2018.audio_test/  
+└───DCASE/
+│  
+└───fma_medium/
 │  
 └───amicorpus/  
 │  
 └───ami_public_manual_1.6.2/  
 │  
-└───src/ 
+└───src/
+│  
+└───datadir/
 ```
 
-Except for the `amicorpus` directory, it is assumed that the path from root to any train file contains the string 'train' and does not contain the string 'test'. Likewise, the path from root to any test file contains the string 'test' and does not contain the string 'train'.
+The AMI corpus is available [here](http://groups.inf.ed.ac.uk/ami/download/) and the DCASE data set is found [here](https://zenodo.org/record/1247102#.XuYav2pKh26), and the FMA data set [here](https://github.com/mdeff/fma).
 
-The AMI corpus is available [here](http://groups.inf.ed.ac.uk/ami/download/) and the FSD Kaggle data set is found [here](https://zenodo.org/record/2552860#.Xr4OMRNKjGK).
+Generally, these data sets can be replaced with any other data sets provided they are located in `root/` and contain raw audio in a format supported by Librosa or one of its backends.
 
 ## Requirements
 
 Requirements are
 
-- Tensorflow 1.15
+- Tensorflow 1.15 (not required for making data)
 - Numpy 1.18.3
 - Librosa 0.7.2
 - Scikit-Learn 0.22.2
@@ -39,24 +37,8 @@ Requirements are
 
 ## Making the Data
 
-To make a data set with 0.01 second window (alpha), 0.01 second hop length (beta), and 5 sub-windows
+To make the full data set,
 
-`python mfcc.py -a 0.01 -b 0.01 -i 5 --speech_src {X} --nonspeech_src {Y}`
+`python make_data.py -gb 20 --outsize 20 --yaml /path/to/yaml`
 
-where `X` is the name of the parent directory containing the speech audio and `Y` is the name of the parent directory containing the non-speech audio. For instance,  
-
-`python mfcc.py -a 0.01 -b 0.01 -i 5 --speech_src amicorpus --nonspeech_src 'FSD Kaggle'`
-
-This will create the files `root/datadir/speech_sources/amicorpus_train.csv` and `root/datadir/nonspeech_sources/FSD Kaggle_train.csv`. These files are likely to be large when using a brief window span and/or multiple sub-windows.
-
-## Training a Model
-
-To train a model, from the `modeling` directory,
-
-`python main.py --speech_src {X} --nonspeech_src {Y}`
-
-where `X` and `Y` are as before. For instance,
-
-`python main.py --spech_src amicorpus --nonspeech_src 'FSD Kaggle'`
-
-This will combine the sources `X` and `Y` into a single file `root/datadir/combined_train.csv`. By default, the classes will be balanced. When the model loads the data set into memory, it will downsample the data set to 1 gb prior to training. The optional `-r` argument can be set to true (i.e `-r True`) to reuse an existing combined csv if it exists (need to commit this change). This avoids the process of combining the two data sets.
+where a default `foo.yaml` is located in `/root/src/`. This will make a CSV of extracted MFCC features for each class in `/root/datadir/bar/` and then combine these into a single, class-balanced CSV of data at `/root/datadir/bar/combined_train.csv`. The full data set is quite large so be sure to have at least 40gb of available space before running the program. However, by default, the class-specific CSVs will be deleted leaving only the combined CSV which generally doesn't take more 20gb. The optional `-gb` and `--outsize` arguments can be used to truncate the data creation process if not enough space is available. The `-gb` argument determines the maximum size of each class-specific CSV and the `--outsize` argument determines the size of the final, combined result.
