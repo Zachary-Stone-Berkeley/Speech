@@ -34,6 +34,7 @@ Requirements are
 - Scikit-Learn 0.22.2
 - progress 1.5
 - argparse 1.4.0
+- PyYaml
 
 ## Making the Data
 
