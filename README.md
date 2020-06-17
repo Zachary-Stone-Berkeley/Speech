@@ -35,6 +35,7 @@ Requirements are
 - progress 1.5
 - argparse 1.4.0
 - PyYaml 0.2.5
+- ffmpeg 4.3
 
 ## Making the Data
 
